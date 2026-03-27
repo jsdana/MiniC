@@ -1,10 +1,4 @@
-# Function Dispatch
-
-## Purpose
-
-Defines how the MiniC interpreter dispatches function calls — both user-defined and native stdlib functions — through the unified `Environment<Value>`.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: User-defined function call
 The interpreter SHALL dispatch calls for user-defined functions by:

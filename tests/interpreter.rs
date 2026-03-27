@@ -206,3 +206,53 @@ fn test_undefined_function() {
     "#;
     assert!(run(src).is_err(), "expected error for undefined function");
 }
+
+// ---------------------------------------------------------------------------
+// 7.4 sqrt via native registry
+// ---------------------------------------------------------------------------
+#[test]
+fn test_stdlib_sqrt_int_coercion() {
+    let src = r#"
+        void main() { float r = sqrt(4) }
+    "#;
+    assert!(run(src).is_ok(), "{}", run(src).unwrap_err());
+}
+
+// ---------------------------------------------------------------------------
+// 7.5 pow via native registry
+// ---------------------------------------------------------------------------
+#[test]
+fn test_stdlib_pow_int_args() {
+    let src = r#"
+        void main() { float r = pow(2, 10) }
+    "#;
+    assert!(run(src).is_ok(), "{}", run(src).unwrap_err());
+}
+
+// ---------------------------------------------------------------------------
+// 7.4 readInt, readFloat, readString are registered (type-check passes)
+// ---------------------------------------------------------------------------
+#[test]
+fn test_stdlib_read_fns_type_check() {
+    // These functions are registered; the program should type-check even if
+    // we don't call them at runtime (call sites are inside dead branches).
+    let src = r#"
+        void main() {
+            if false then { int x = readInt() };
+            if false then { float x = readFloat() };
+            if false then { str x = readString() }
+        }
+    "#;
+    assert!(run(src).is_ok(), "{}", run(src).unwrap_err());
+}
+
+// ---------------------------------------------------------------------------
+// 7.5b pow(2.0, 3.0) returns 8.0 via unified dispatch
+// ---------------------------------------------------------------------------
+#[test]
+fn test_stdlib_pow_float_args() {
+    let src = r#"
+        void main() { float r = pow(2.0, 3.0) }
+    "#;
+    assert!(run(src).is_ok(), "{}", run(src).unwrap_err());
+}

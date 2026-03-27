@@ -159,3 +159,46 @@ fn test_type_check_block_scoping() {
     assert!(result.is_err());
     assert!(result.unwrap_err().message.contains("undeclared"));
 }
+
+// ---------------------------------------------------------------------------
+// 7.2 print accepts any type via Type::Any
+// ---------------------------------------------------------------------------
+#[test]
+fn test_type_check_print_accepts_int() {
+    assert!(parse_and_type_check("void main() { print(42) }").is_ok());
+}
+
+#[test]
+fn test_type_check_print_accepts_bool() {
+    assert!(parse_and_type_check("void main() { print(true) }").is_ok());
+}
+
+#[test]
+fn test_type_check_print_accepts_str() {
+    assert!(parse_and_type_check("void main() { print(\"hello\") }").is_ok());
+}
+
+#[test]
+fn test_type_check_print_accepts_float() {
+    assert!(parse_and_type_check("void main() { print(3.14) }").is_ok());
+}
+
+#[test]
+fn test_type_check_print_accepts_array() {
+    assert!(parse_and_type_check("void main() { print([1, 2, 3]) }").is_ok());
+}
+
+// ---------------------------------------------------------------------------
+// 7.3 Wrong arity on stdlib function reports type error
+// ---------------------------------------------------------------------------
+#[test]
+fn test_type_check_sqrt_wrong_arity() {
+    let result = parse_and_type_check("void main() { float r = sqrt() }");
+    assert!(result.is_err(), "expected arity error for sqrt()");
+}
+
+#[test]
+fn test_type_check_print_wrong_arity() {
+    let result = parse_and_type_check("void main() { print(1, 2) }");
+    assert!(result.is_err(), "expected arity error for print(1, 2)");
+}

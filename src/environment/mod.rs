@@ -1,3 +1,3 @@
 pub mod env;
 
-pub use env::{Environment, FuncSig};
+pub use env::Environment;

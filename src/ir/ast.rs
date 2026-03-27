@@ -6,7 +6,7 @@
 //!
 //! See `doc/architecture/ast.md` for the design.
 
-/// MiniC types: scalar, array, function.
+/// MiniC types: scalar, array, function, and Any (for polymorphic native params).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Unit,
@@ -16,6 +16,8 @@ pub enum Type {
     Str,
     Array(Box<Type>),
     Fun(Vec<Type>, Box<Type>),
+    /// Matches any type. Only used as a parameter type in native stdlib registrations.
+    Any,
 }
 
 /// A literal value.

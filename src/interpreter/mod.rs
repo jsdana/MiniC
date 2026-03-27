@@ -2,28 +2,33 @@
 //!
 //! Entry point: `interpret(program: &CheckedProgram) -> Result<(), RuntimeError>`
 
-pub mod env;
 pub mod eval_expr;
 pub mod exec_stmt;
 pub mod value;
 
+use crate::environment::Environment;
 use crate::ir::ast::CheckedProgram;
+use crate::stdlib::NativeRegistry;
 
-use env::RuntimeEnv;
 use eval_expr::eval_call;
-use value::RuntimeError;
+use value::{FnValue, RuntimeError, Value};
 
 /// Interpret a type-checked MiniC program, starting execution at `main`.
 pub fn interpret(program: &CheckedProgram) -> Result<(), RuntimeError> {
-    let mut env = RuntimeEnv::new();
+    let mut env = Environment::<Value>::new();
 
-    // Register all user-defined functions
-    for fun in &program.functions {
-        env.register_fn(fun.name.clone(), fun.clone());
+    // Register native stdlib functions as Value::Fn(FnValue::Native) bindings.
+    let registry = NativeRegistry::default();
+    for (name, entry) in registry.iter() {
+        env.declare(name.clone(), Value::Fn(FnValue::Native(entry.func)));
     }
 
-    // Locate and call main
-    if env.get_fn("main").is_none() {
+    // Register user-defined functions as Value::Fn(FnValue::UserDefined) bindings.
+    for fun in &program.functions {
+        env.declare(fun.name.clone(), Value::Fn(FnValue::UserDefined(fun.clone())));
+    }
+
+    if env.get("main").is_none() {
         return Err(RuntimeError::new("no 'main' function found"));
     }
 

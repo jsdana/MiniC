@@ -1,22 +1,19 @@
+use crate::environment::Environment;
 use crate::ir::ast::{CheckedExpr, Expr, Literal};
 
-use super::env::RuntimeEnv;
 use super::exec_stmt::exec_stmt;
-use super::value::{RuntimeError, Value};
+use super::value::{FnValue, RuntimeError, Value};
 
 /// Evaluate a checked expression to a runtime value.
-pub fn eval_expr(expr: &CheckedExpr, env: &mut RuntimeEnv) -> Result<Value, RuntimeError> {
+pub fn eval_expr(expr: &CheckedExpr, env: &mut Environment<Value>) -> Result<Value, RuntimeError> {
     match &expr.exp {
-        // --- Literals ---
         Expr::Literal(lit) => Ok(eval_literal(lit)),
 
-        // --- Identifier ---
         Expr::Ident(name) => env
-            .get_var(name)
+            .get(name)
             .cloned()
             .ok_or_else(|| RuntimeError::new(format!("undefined variable '{}'", name))),
 
-        // --- Unary negation ---
         Expr::Neg(inner) => match eval_expr(inner, env)? {
             Value::Int(n) => Ok(Value::Int(-n)),
             Value::Float(x) => Ok(Value::Float(-x)),
@@ -26,19 +23,16 @@ pub fn eval_expr(expr: &CheckedExpr, env: &mut RuntimeEnv) -> Result<Value, Runt
             ))),
         },
 
-        // --- Binary arithmetic ---
         Expr::Add(l, r) => numeric_binop(eval_expr(l, env)?, eval_expr(r, env)?, |a, b| a + b, |a, b| a + b),
         Expr::Sub(l, r) => numeric_binop(eval_expr(l, env)?, eval_expr(r, env)?, |a, b| a - b, |a, b| a - b),
         Expr::Mul(l, r) => numeric_binop(eval_expr(l, env)?, eval_expr(r, env)?, |a, b| a * b, |a, b| a * b),
         Expr::Div(l, r) => numeric_binop(eval_expr(l, env)?, eval_expr(r, env)?, |a, b| a / b, |a, b| a / b),
 
-        // --- Relational comparisons ---
         Expr::Lt(l, r) => numeric_cmp(eval_expr(l, env)?, eval_expr(r, env)?, |a, b| a < b, |a, b| a < b),
         Expr::Le(l, r) => numeric_cmp(eval_expr(l, env)?, eval_expr(r, env)?, |a, b| a <= b, |a, b| a <= b),
         Expr::Gt(l, r) => numeric_cmp(eval_expr(l, env)?, eval_expr(r, env)?, |a, b| a > b, |a, b| a > b),
         Expr::Ge(l, r) => numeric_cmp(eval_expr(l, env)?, eval_expr(r, env)?, |a, b| a >= b, |a, b| a >= b),
 
-        // --- Equality ---
         Expr::Eq(l, r) => {
             let lv = eval_expr(l, env)?;
             let rv = eval_expr(r, env)?;
@@ -50,7 +44,6 @@ pub fn eval_expr(expr: &CheckedExpr, env: &mut RuntimeEnv) -> Result<Value, Runt
             Ok(Value::Bool(!values_equal(&lv, &rv)))
         }
 
-        // --- Logical ---
         Expr::Not(inner) => match eval_expr(inner, env)? {
             Value::Bool(b) => Ok(Value::Bool(!b)),
             v => Err(RuntimeError::new(format!(
@@ -61,7 +54,7 @@ pub fn eval_expr(expr: &CheckedExpr, env: &mut RuntimeEnv) -> Result<Value, Runt
         Expr::And(l, r) => {
             let lv = eval_expr(l, env)?;
             match lv {
-                Value::Bool(false) => Ok(Value::Bool(false)), // short-circuit
+                Value::Bool(false) => Ok(Value::Bool(false)),
                 Value::Bool(true) => eval_expr(r, env),
                 v => Err(RuntimeError::new(format!(
                     "expected bool for 'and', got: {}",
@@ -72,7 +65,7 @@ pub fn eval_expr(expr: &CheckedExpr, env: &mut RuntimeEnv) -> Result<Value, Runt
         Expr::Or(l, r) => {
             let lv = eval_expr(l, env)?;
             match lv {
-                Value::Bool(true) => Ok(Value::Bool(true)), // short-circuit
+                Value::Bool(true) => Ok(Value::Bool(true)),
                 Value::Bool(false) => eval_expr(r, env),
                 v => Err(RuntimeError::new(format!(
                     "expected bool for 'or', got: {}",
@@ -81,14 +74,12 @@ pub fn eval_expr(expr: &CheckedExpr, env: &mut RuntimeEnv) -> Result<Value, Runt
             }
         }
 
-        // --- Array literal ---
         Expr::ArrayLit(elems) => {
             let vals: Result<Vec<Value>, RuntimeError> =
                 elems.iter().map(|e| eval_expr(e, env)).collect();
             Ok(Value::Array(vals?))
         }
 
-        // --- Array index ---
         Expr::Index { base, index } => {
             let base_val = eval_expr(base, env)?;
             let idx_val = eval_expr(index, env)?;
@@ -110,7 +101,6 @@ pub fn eval_expr(expr: &CheckedExpr, env: &mut RuntimeEnv) -> Result<Value, Runt
             }
         }
 
-        // --- Function call expression ---
         Expr::Call { name, args } => {
             let arg_vals: Result<Vec<Value>, RuntimeError> =
                 args.iter().map(|a| eval_expr(a, env)).collect();
@@ -119,48 +109,34 @@ pub fn eval_expr(expr: &CheckedExpr, env: &mut RuntimeEnv) -> Result<Value, Runt
     }
 }
 
-/// Dispatch a function call by name: built-ins first, then user-defined.
+/// Dispatch a function call via the unified environment.
 pub fn eval_call(
     name: &str,
     args: Vec<Value>,
-    env: &mut RuntimeEnv,
+    env: &mut Environment<Value>,
 ) -> Result<Value, RuntimeError> {
-    // Built-in: print
-    if name == "print" {
-        let val = args
-            .into_iter()
-            .next()
-            .unwrap_or(Value::Void);
-        println!("{}", val);
-        return Ok(Value::Void);
+    match env.get(name).cloned() {
+        Some(Value::Fn(FnValue::Native(f))) => (f)(args),
+        Some(Value::Fn(FnValue::UserDefined(decl))) => {
+            if args.len() != decl.params.len() {
+                return Err(RuntimeError::new(format!(
+                    "function '{}' expects {} arguments, got {}",
+                    name,
+                    decl.params.len(),
+                    args.len()
+                )));
+            }
+            let snapshot = env.snapshot();
+            for ((param_name, _), val) in decl.params.iter().zip(args.into_iter()) {
+                env.declare(param_name.clone(), val);
+            }
+            let result = exec_stmt(&decl.body, env)?;
+            env.restore(snapshot);
+            Ok(result.unwrap_or(Value::Void))
+        }
+        Some(_) => Err(RuntimeError::new(format!("'{}' is not a function", name))),
+        None => Err(RuntimeError::new(format!("undefined function '{}'", name))),
     }
-
-    // User-defined function
-    let decl = env
-        .get_fn(name)
-        .cloned()
-        .ok_or_else(|| RuntimeError::new(format!("undefined function '{}'", name)))?;
-
-    if args.len() != decl.params.len() {
-        return Err(RuntimeError::new(format!(
-            "function '{}' expects {} arguments, got {}",
-            name,
-            decl.params.len(),
-            args.len()
-        )));
-    }
-
-    let snapshot = env.snapshot();
-
-    // Bind parameters
-    for ((param_name, _), val) in decl.params.iter().zip(args.into_iter()) {
-        env.declare_var(param_name.clone(), val);
-    }
-
-    let result = exec_stmt(&decl.body, env)?;
-    env.restore(snapshot);
-
-    Ok(result.unwrap_or(Value::Void))
 }
 
 // --- Helpers ---

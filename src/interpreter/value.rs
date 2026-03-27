@@ -1,5 +1,36 @@
 use std::fmt;
 
+use crate::ir::ast::CheckedFunDecl;
+
+/// A native (Rust-implemented) MiniC function. Defined here to avoid circular deps with stdlib.
+pub type NativeFn = fn(Vec<Value>) -> Result<Value, RuntimeError>;
+
+/// A function value: either a MiniC-defined function or a Rust-native implementation.
+#[derive(Clone)]
+pub enum FnValue {
+    UserDefined(CheckedFunDecl),
+    Native(NativeFn),
+}
+
+impl PartialEq for FnValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (FnValue::UserDefined(a), FnValue::UserDefined(b)) => a == b,
+            (FnValue::Native(a), FnValue::Native(b)) => (*a as usize) == (*b as usize),
+            _ => false,
+        }
+    }
+}
+
+impl fmt::Debug for FnValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FnValue::UserDefined(decl) => write!(f, "UserDefined({})", decl.name),
+            FnValue::Native(_) => write!(f, "Native(<fn ptr>)"),
+        }
+    }
+}
+
 /// Runtime value in the MiniC interpreter.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -9,6 +40,7 @@ pub enum Value {
     Str(String),
     Array(Vec<Value>),
     Void,
+    Fn(FnValue),
 }
 
 impl fmt::Display for Value {
@@ -29,6 +61,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, "]")
             }
+            Value::Fn(_) => write!(f, "<function>"),
         }
     }
 }

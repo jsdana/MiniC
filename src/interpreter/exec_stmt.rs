@@ -1,6 +1,6 @@
+use crate::environment::Environment;
 use crate::ir::ast::{CheckedExpr, CheckedStmt, Expr, Statement};
 
-use super::env::RuntimeEnv;
 use super::eval_expr::{eval_call, eval_expr};
 use super::value::{RuntimeError, Value};
 
@@ -8,12 +8,12 @@ use super::value::{RuntimeError, Value};
 pub type ExecResult = Result<Option<Value>, RuntimeError>;
 
 /// Execute a checked statement. Returns `Some(v)` if a `return` was hit.
-pub fn exec_stmt(stmt: &CheckedStmt, env: &mut RuntimeEnv) -> ExecResult {
+pub fn exec_stmt(stmt: &CheckedStmt, env: &mut Environment<Value>) -> ExecResult {
     match &stmt.stmt {
         // --- Variable declaration ---
         Statement::Decl { name, init, .. } => {
             let val = eval_expr(init, env)?;
-            env.declare_var(name.clone(), val);
+            env.declare(name.clone(), val);
             Ok(None)
         }
 
@@ -25,17 +25,17 @@ pub fn exec_stmt(stmt: &CheckedStmt, env: &mut RuntimeEnv) -> ExecResult {
         }
 
         // --- Block ---
-        // Only remove variables that were *declared* inside the block on exit.
+        // Only remove variables declared inside the block on exit.
         // Assignments to outer-scope variables must persist (e.g., loop counters).
         Statement::Block { seq } => {
-            let outer_keys = env.var_names();
+            let outer_keys = env.names();
             for s in seq {
                 if let Some(ret) = exec_stmt(s, env)? {
-                    env.remove_new_vars(&outer_keys);
+                    env.remove_new(&outer_keys);
                     return Ok(Some(ret));
                 }
             }
-            env.remove_new_vars(&outer_keys);
+            env.remove_new(&outer_keys);
             Ok(None)
         }
 
@@ -95,10 +95,14 @@ pub fn exec_stmt(stmt: &CheckedStmt, env: &mut RuntimeEnv) -> ExecResult {
 }
 
 /// Assign `val` to the lvalue described by `target`.
-fn assign_lvalue(target: &CheckedExpr, val: Value, env: &mut RuntimeEnv) -> Result<(), RuntimeError> {
+fn assign_lvalue(
+    target: &CheckedExpr,
+    val: Value,
+    env: &mut Environment<Value>,
+) -> Result<(), RuntimeError> {
     match &target.exp {
         Expr::Ident(name) => {
-            if env.set_var(name, val) {
+            if env.set(name, val) {
                 Ok(())
             } else {
                 Err(RuntimeError::new(format!(
@@ -108,7 +112,6 @@ fn assign_lvalue(target: &CheckedExpr, val: Value, env: &mut RuntimeEnv) -> Resu
             }
         }
         Expr::Index { base, index } => {
-            // Resolve the index
             let idx = match eval_expr(index, &mut *env)? {
                 Value::Int(i) => i as usize,
                 v => {
@@ -125,18 +128,16 @@ fn assign_lvalue(target: &CheckedExpr, val: Value, env: &mut RuntimeEnv) -> Resu
 }
 
 /// Recursively assign into a (possibly nested) array lvalue.
-/// `base` is the expression to the left of `[idx]`, `idx` is already resolved.
 fn assign_index(
     base: &CheckedExpr,
     idx: usize,
     val: Value,
-    env: &mut RuntimeEnv,
+    env: &mut Environment<Value>,
 ) -> Result<(), RuntimeError> {
     match &base.exp {
-        // Base case: simple identifier — mutate the array in the environment
         Expr::Ident(name) => {
             let arr = env
-                .get_var(name)
+                .get(name)
                 .cloned()
                 .ok_or_else(|| RuntimeError::new(format!("undefined variable '{}'", name)))?;
             match arr {
@@ -149,7 +150,7 @@ fn assign_index(
                         )));
                     }
                     elems[idx] = val;
-                    env.set_var(name, Value::Array(elems));
+                    env.set(name, Value::Array(elems));
                     Ok(())
                 }
                 v => Err(RuntimeError::new(format!(
@@ -158,7 +159,6 @@ fn assign_index(
                 ))),
             }
         }
-        // Recursive case: nested index — e.g., matrix[i][j]
         Expr::Index {
             base: inner_base,
             index: inner_index,
@@ -172,10 +172,9 @@ fn assign_index(
                     )))
                 }
             };
-            // Fetch the outer array, update the inner element, write back
             let outer_name = extract_ident_name(inner_base)?;
             let outer = env
-                .get_var(&outer_name)
+                .get(&outer_name)
                 .cloned()
                 .ok_or_else(|| RuntimeError::new(format!("undefined variable '{}'", outer_name)))?;
             match outer {
@@ -205,7 +204,7 @@ fn assign_index(
                             )))
                         }
                     }
-                    env.set_var(&outer_name, Value::Array(outer_elems));
+                    env.set(&outer_name, Value::Array(outer_elems));
                     Ok(())
                 }
                 v => Err(RuntimeError::new(format!(
@@ -218,7 +217,6 @@ fn assign_index(
     }
 }
 
-/// Extract the identifier name from a simple `Expr::Ident` expression.
 fn extract_ident_name(expr: &CheckedExpr) -> Result<String, RuntimeError> {
     match &expr.exp {
         Expr::Ident(name) => Ok(name.clone()),
