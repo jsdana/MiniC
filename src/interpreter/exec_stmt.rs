@@ -94,6 +94,50 @@ pub fn exec_stmt(stmt: &CheckedStmt, env: &mut Environment<Value>) -> ExecResult
             ))),
         },
 
+        Statement::Switch { target, cases, default } => {
+            // 1. EVALUATES THE TARGET
+            let target_val = eval_expr(target, env)?;
+
+            // 2. STATES CONTROL VARIABLES
+            let mut falling_through = false;
+            let mut matched_any = false;
+
+            // 3. ITERATES THROUGH CASES
+            for (case_expr, case_stmt) in cases {
+                
+                if !falling_through {
+                    let case_val = eval_expr(case_expr, env)?;
+                    if target_val == case_val {
+                        falling_through = true;
+                        matched_any = true;
+                    }
+                }
+
+                // 4. EXECUTES THE BLOCK
+                if falling_through {
+                    if let Some(ret) = exec_stmt(case_stmt, env)? {
+                        if let Value::Break = ret {
+                            return Ok(None); 
+                        }
+                        return Ok(Some(ret));
+                    }
+                }
+            }
+
+            // 5. DEFAULT BLOCK
+            if !matched_any || falling_through {
+                if let Some(def_stmt) = default {
+                    if let Some(ret) = exec_stmt(def_stmt, env)? {
+                        return Ok(Some(ret));
+                    }
+                }
+            }
+            
+            Ok(None)
+        }
+
+        Statement::Break => Ok(Some(Value::Break)),
+
         // --- While ---
         Statement::While { cond, body } => loop {
             match eval_expr(cond, env)? {

@@ -149,6 +149,13 @@ pub enum Statement<Ty> {
         cond: Box<ExprD<Ty>>,
         body: Box<StatementD<Ty>>,
     },
+    Switch {
+        target: Box<ExprD<Ty>>,
+        cases: Vec<(ExprD<Ty>, StatementD<Ty>)>,
+        default: Option<Box<StatementD<Ty>>>,
+    },
+    Break,
+
     /// Return statement: `return [expr]`.
     Return(Option<Box<ExprD<Ty>>>),
 }

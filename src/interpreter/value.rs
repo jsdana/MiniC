@@ -103,6 +103,7 @@ pub enum Value {
     Array(Vec<Value>),
     Void,
     Fn(FnValue),
+    Break,
 }
 
 impl fmt::Display for Value {
@@ -124,6 +125,7 @@ impl fmt::Display for Value {
                 write!(f, "]")
             }
             Value::Fn(_) => write!(f, "<function>"),
+            Value::Break => write!(f, "<break>"),
         }
     }
 }

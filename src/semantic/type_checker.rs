@@ -218,6 +218,44 @@ fn type_check_stmt(
                 else_branch: else_checked.map(Box::new),
             }
         }
+        
+        Statement::Switch { target, cases, default } => {
+            // 1. EVALUATES THE TARGET EXPRESSION
+            let target_checked = type_check_expr_to_typed(target, env)?;
+            
+            // 2. PREPARES TO STORE VALIDATED CASES
+            let mut cases_checked = Vec::new();
+
+            // 3. ITERATES AND VALIDATES EACH CASE
+            for (expr, stmt) in cases {
+                let expr_checked = type_check_expr_to_typed(expr, env)?;
+                
+                if !types_compatible(&expr_checked.ty, &target_checked.ty) {
+                    return Err(TypeError::new(format!(
+                        "switch case type mismatch: expected {:?}, got {:?}",
+                        target_checked.ty, expr_checked.ty
+                    )));
+                }
+                
+                let stmt_checked = type_check_stmt(stmt, env, expected_return)?;
+                cases_checked.push((expr_checked, stmt_checked));
+            }
+            
+            // 4. VALIDATES THE DEFAULT BLOCK (IF IT EXISTS)
+            let default_checked = match default {
+                Some(stmt) => Some(Box::new(type_check_stmt(stmt, env, expected_return)?)),
+                None => None,
+            };
+
+            // 5. REBUILDS AND RETURNS THE CHECKED AST NODE
+            Statement::Switch {
+                target: Box::new(target_checked),
+                cases: cases_checked,
+                default: default_checked,
+            }
+        }
+        Statement::Break => Statement::Break,   
+
         Statement::While { cond, body } => {
             let cond_checked = type_check_expr_to_typed(cond, env)?;
             if cond_checked.ty != Type::Bool {

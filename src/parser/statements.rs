@@ -65,6 +65,8 @@ pub fn statement(input: &str) -> IResult<&str, UncheckedStmt> {
         alt((
             block_statement,
             if_statement,
+            switch_statement,
+            break_statement,
             while_statement,
             return_statement,
             decl_statement,
@@ -143,6 +145,66 @@ fn if_statement(input: &str) -> IResult<&str, UncheckedStmt> {
             else_branch: else_branch.map(Box::new),
         }),
     ))
+}
+
+/// Parses a complete switch statement
+fn switch_statement(input: &str) -> IResult<&str, UncheckedStmt> {
+    
+    // 1. MATCHES THE KEYWORD
+    let (rest, _) = preceded(multispace0, tag("switch"))(input)?;
+
+    // 2. MATCHES THE TARGET EXPRESSION
+    let (rest, target) = delimited(
+        preceded(multispace0, char('(')),
+        preceded(multispace0, expression),
+        preceded(multispace0, char(')')),
+    )(rest)?;
+
+    // 3. DEFINES THE CASE PARSER
+    let case_parser = map(
+        tuple((
+            preceded(multispace0, tag("case")),
+            preceded(multispace0, expression),
+            preceded(multispace0, char(':')),
+            many0(preceded(multispace0, statement)),
+        )),
+        |(_, expr, _, stmts)| (expr, wrap(Statement::Block { seq: stmts }))
+    );
+
+    // 4. DEFINES THE DEFAULT PARSER
+    let default_parser = map(
+        tuple((
+            preceded(multispace0, tag("default")),
+            preceded(multispace0, char(':')),
+            many0(preceded(multispace0, statement)),
+        )),
+        |(_, _, stmts)| wrap(Statement::Block { seq: stmts })
+    );
+
+    // 5. PARSES THE SWITCH BODY
+    let (rest, (cases, default_case)) = delimited(
+        preceded(multispace0, char('{')),
+        tuple((
+            many0(case_parser),
+            opt(default_parser),
+        )),
+        preceded(multispace0, char('}')),
+    )(rest)?;
+
+    // 6. BUILDS THE AST NODE
+    Ok((rest, wrap(Statement::Switch {
+        target: Box::new(target),
+        cases,
+        default: default_case.map(Box::new),
+    })))
+
+}
+
+/// Parse a break statement
+fn break_statement(input: &str) -> IResult<&str, UncheckedStmt> {
+    let (rest, _) = preceded(multispace0, tag("break"))(input)?;
+    let (rest, _) = preceded(multispace0, char(';'))(rest)?;
+    Ok((rest, wrap(Statement::Break)))
 }
 
 /// Parse a while statement: `while expr block`.
